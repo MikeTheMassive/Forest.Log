@@ -15,7 +15,8 @@
   const STORE = "observations";
   const MAP_KEY_STORAGE = "forestLogMapTilerKey";
   const LAST_VIEW_STORAGE = "forestLogLastView";
-  const SUPABASE_CONFIG_STORAGE = "forestLogSupabaseConfig";
+  const SUPABASE_URL = "https://ajfdfknklakdyfqhvszx.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_GDdut-14rdDgQ_tB-OOW3w_EYW1Vd6L";
   const SYNC_DELETIONS_STORAGE = "forestLogSyncDeletions";
 
   let db;
@@ -471,7 +472,6 @@
     $("settingsSheet").classList.remove("hidden");
     $("maptilerKeyInput").value = localStorage.getItem(MAP_KEY_STORAGE) || "";
     $("observationCount").textContent = String(observations.length);
-    loadSyncSettings();
     updateSyncUi();
   }
 
@@ -556,42 +556,14 @@
   }
 
 
-  function getSyncConfig() {
-    try {
-      return JSON.parse(localStorage.getItem(SUPABASE_CONFIG_STORAGE) || "null");
-    } catch {
-      return null;
-    }
-  }
-
-  function loadSyncSettings() {
-    const config = getSyncConfig();
-    $("supabaseUrlInput").value = config?.url || "";
-    $("supabaseKeyInput").value = config?.key || "";
-  }
-
-  function saveSyncConfig() {
-    const url = $("supabaseUrlInput").value.trim().replace(/\/$/, "");
-    const key = $("supabaseKeyInput").value.trim();
-    if (!/^https:\/\/.+\.supabase\.co$/.test(url) || !key) {
-      showToast("Enter a valid Supabase URL and public key.");
-      return false;
-    }
-    localStorage.setItem(SUPABASE_CONFIG_STORAGE, JSON.stringify({ url, key }));
-    initSupabase();
-    showToast("Supabase connection saved on this device.");
-    return true;
-  }
-
   function initSupabase() {
-    const config = getSyncConfig();
-    if (!config?.url || !config?.key || !window.supabase?.createClient) {
+    if (!window.supabase?.createClient) {
       supabaseClient = null;
       syncUser = null;
       updateSyncUi();
       return;
     }
-    supabaseClient = window.supabase.createClient(config.url, config.key, {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
     supabaseClient.auth.getUser().then(({ data }) => {
@@ -610,15 +582,17 @@
     if (!status) return;
     if (message) status.textContent = message;
     else if (syncUser) status.textContent = `Signed in as ${syncUser.email || "Supabase user"}. Local and cloud copies are ready to sync.`;
-    else if (getSyncConfig()) status.textContent = "Connection saved. Sign in to enable synchronization.";
-    else status.textContent = "Not connected. Set up the free Supabase project, then enter its URL and public key.";
+    else status.textContent = "Cloud is ready. Sign in to enable synchronization.";
     $("syncNowBtn").disabled = !syncUser || syncBusy;
     $("syncSignOutBtn").classList.toggle("hidden", !syncUser);
     $("syncSignInBtn").classList.toggle("hidden", !!syncUser);
   }
 
   async function signInOrCreateAccount() {
-    if (!supabaseClient && !saveSyncConfig()) return;
+    if (!supabaseClient) {
+      showToast("Cloud service is still loading. Please try again.");
+      return;
+    }
     const email = $("syncEmailInput").value.trim();
     const password = $("syncPasswordInput").value;
     if (!email || password.length < 6) {
@@ -765,7 +739,6 @@
       $("toggleKeyBtn").textContent = showing ? "Show" : "Hide";
     });
 
-    $("saveSyncConfigBtn").addEventListener("click", saveSyncConfig);
     $("syncSignInBtn").addEventListener("click", signInOrCreateAccount);
     $("syncNowBtn").addEventListener("click", () => syncNow());
     $("syncSignOutBtn").addEventListener("click", signOutSync);
