@@ -139,6 +139,36 @@
         </div>
 
         <div class="settings-block">
+          <h2>Cloud sync (Supabase)</h2>
+          <p>Keep observations available on your iPhone and desktop. Local storage remains the offline copy.</p>
+          <label class="field">
+            <span>Supabase project URL</span>
+            <input id="supabaseUrlInput" type="url" autocomplete="url" spellcheck="false" placeholder="https://your-project.supabase.co">
+          </label>
+          <label class="field">
+            <span>Publishable or anon key</span>
+            <input id="supabaseKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste public project key">
+          </label>
+          <div class="sync-login-grid">
+            <label class="field">
+              <span>Email</span>
+              <input id="syncEmailInput" type="email" autocomplete="email" placeholder="you@example.com">
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="syncPasswordInput" type="password" autocomplete="current-password" placeholder="Your Supabase password">
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button id="saveSyncConfigBtn" class="secondary-btn" type="button">Save connection</button>
+            <button id="syncSignInBtn" class="primary-btn" type="button">Sign in / create account</button>
+            <button id="syncNowBtn" class="secondary-btn" type="button">Sync now</button>
+            <button id="syncSignOutBtn" class="secondary-btn hidden" type="button">Sign out</button>
+          </div>
+          <small id="syncStatus" class="hint">Not connected. Set up the free Supabase project, then enter its URL and public key.</small>
+        </div>
+
+        <div class="settings-block">
           <h2>Backup</h2>
           <p>Export creates one backup file containing observations, notes and compressed photos. Keep a copy somewhere outside this iPhone.</p>
           <div class="settings-actions">
@@ -176,6 +206,7 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./app.js"></script>
 </body>
 </html>
