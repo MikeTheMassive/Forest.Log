@@ -1,4 +1,4 @@
-const CACHE = "forest-log-v6";
+const CACHE = "forest-log-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -31,6 +31,14 @@ self.addEventListener("fetch", (event) => {
 
   // Cache the Leaflet library after first use so the app UI can reopen offline.
   // Do not cache third-party map/satellite tiles; those remain subject to provider terms.
+  // Always check the network for page navigations so the clean main URL receives app updates.
+  if (url.origin === self.location.origin && req.mode === "navigate") {
+    event.respondWith(
+      fetch(req).catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
+
   if (url.origin !== self.location.origin) {
     if (url.hostname === "unpkg.com" || url.hostname === "cdn.jsdelivr.net") {
       event.respondWith(
