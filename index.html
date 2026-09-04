@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#18251b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Forest Log">
+  <meta name="description" content="Private GPS observation log for mushrooms, trees, animal tracks and other forest finds.">
+  <title>Forest Log</title>
+
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="app">
+    <section id="map" aria-label="Observation map"></section>
+
+    <div class="top-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">🍄</span>
+        <span>Forest Log</span>
+      </div>
+      <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙︎</button>
+    </div>
+
+    <div id="mapMessage" class="map-message hidden" role="status"></div>
+
+    <div class="map-actions" aria-label="Map actions">
+      <button id="locateBtn" class="round-btn" type="button" aria-label="Show my location" title="Show my location">◎</button>
+      <button id="addBtn" class="add-btn" type="button"><span aria-hidden="true">＋</span> Observation</button>
+    </div>
+
+    <div id="sheetBackdrop" class="backdrop hidden"></div>
+
+    <section id="observationSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="obsHeading">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h1 id="obsHeading">New observation</h1>
+        <button class="icon-btn close-sheet" type="button" aria-label="Close">×</button>
+      </div>
+
+      <form id="observationForm">
+        <input id="obsId" type="hidden">
+
+        <fieldset class="category-fieldset">
+          <legend>What did you find?</legend>
+          <div class="category-grid">
+            <label class="category-option">
+              <input type="radio" name="category" value="mushroom" checked>
+              <span><b>🍄</b>Mushroom</span>
+            </label>
+            <label class="category-option">
+              <input type="radio" name="category" value="tree">
+              <span><b>🌳</b>Tree / place</span>
+            </label>
+            <label class="category-option">
+              <input type="radio" name="category" value="tracks">
+              <span><b>🐾</b>Tracks / path</span>
+            </label>
+            <label class="category-option">
+              <input type="radio" name="category" value="animal">
+              <span><b>🦌</b>Animal</span>
+            </label>
+            <label class="category-option">
+              <input type="radio" name="category" value="other">
+              <span><b>📍</b>Other</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <label class="field">
+          <span>Title</span>
+          <input id="titleInput" type="text" maxlength="80" placeholder="e.g. Chanterelles">
+        </label>
+
+        <label class="field">
+          <span>Notes</span>
+          <textarea id="notesInput" rows="3" maxlength="1200" placeholder="What did you observe?"></textarea>
+        </label>
+
+        <div class="field">
+          <span>Location</span>
+          <div class="location-row">
+            <div>
+              <strong id="locationStatus">Not set yet</strong>
+              <small id="coordinatesText">GPS will be requested when you add an observation.</small>
+            </div>
+            <button id="useMapCenterBtn" class="secondary-btn" type="button">Use map center</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Photos <small>(up to 3)</small></span>
+          <label class="photo-picker">
+            <input id="photoInput" type="file" accept="image/*" multiple>
+            <span>📷 Add photos</span>
+          </label>
+          <div id="photoPreview" class="photo-preview"></div>
+          <small class="hint">Photos are resized before saving to reduce storage use.</small>
+        </div>
+
+        <p id="formError" class="form-error hidden" role="alert"></p>
+
+        <div class="sheet-actions">
+          <button id="deleteBtn" class="danger-btn hidden" type="button">Delete</button>
+          <button class="secondary-btn close-sheet" type="button">Cancel</button>
+          <button id="saveBtn" class="primary-btn" type="submit">Save observation</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="settingsSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsHeading">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h1 id="settingsHeading">Settings & backup</h1>
+        <button class="icon-btn close-settings" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div class="settings-content">
+        <div class="settings-block">
+          <h2>Satellite map</h2>
+          <p>Forest Log can use MapTiler Satellite. Create a free personal MapTiler account and paste the API key here. The key stays on this device.</p>
+          <label class="field">
+            <span>MapTiler API key</span>
+            <div class="key-row">
+              <input id="maptilerKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key">
+              <button id="toggleKeyBtn" class="secondary-btn" type="button">Show</button>
+            </div>
+          </label>
+          <div class="settings-actions">
+            <button id="saveMapKeyBtn" class="primary-btn" type="button">Save satellite key</button>
+            <button id="clearMapKeyBtn" class="secondary-btn" type="button">Use street map</button>
+          </div>
+          <small id="mapKeyStatus" class="hint"></small>
+        </div>
+
+        <div class="settings-block">
+          <h2>Backup</h2>
+          <p>Export creates one backup file containing observations, notes and compressed photos. Keep a copy somewhere outside this iPhone.</p>
+          <div class="settings-actions">
+            <button id="exportBtn" class="secondary-btn" type="button">Export backup</button>
+            <label class="secondary-btn file-btn">
+              Import backup
+              <input id="importInput" type="file" accept="application/json,.json">
+            </label>
+          </div>
+          <small id="backupStatus" class="hint"></small>
+        </div>
+
+        <div class="settings-block">
+          <h2>Storage</h2>
+          <p><strong id="observationCount">0</strong> observations saved locally on this device.</p>
+          <p class="warning">Deleting the web app/browser data can remove local observations. Export backups regularly.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="detailsSheet" class="sheet details-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="detailsHeading">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h1 id="detailsHeading">Observation</h1>
+        <button class="icon-btn close-details" type="button" aria-label="Close">×</button>
+      </div>
+      <div id="detailsContent" class="details-content"></div>
+      <div class="sheet-actions details-actions">
+        <button id="editDetailsBtn" class="secondary-btn" type="button">Edit</button>
+        <button class="primary-btn close-details" type="button">Done</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="./app.js"></script>
+</body>
+</html>
