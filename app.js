@@ -131,7 +131,7 @@
 
     const key = localStorage.getItem(MAP_KEY_STORAGE)?.trim();
     if (key) {
-      const url = `https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}?key=${encodeURIComponent(key)}`;
+      const url = `https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}.jpg?key=${encodeURIComponent(key)}`;
       baseLayer = L.tileLayer(url, {
         minZoom: 1,
         maxZoom: 20,
