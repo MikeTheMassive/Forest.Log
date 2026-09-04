@@ -33,6 +33,9 @@
   let supabaseClient = null;
   let syncUser = null;
   let syncBusy = false;
+  let locationWatchId = null;
+  let latestLocation = null;
+  let locationPermissionNoticeShown = false;
 
   function showToast(message) {
     const el = $("toast");
@@ -97,9 +100,12 @@
 
   function makeMarkerIcon(category) {
     const info = categoryInfo[category] || categoryInfo.other;
+    const content = category === "mushroom"
+      ? '<img class="marker-mushroom" src="./icons/icon-192.png?v=2" alt="">'
+      : `<span>${info.icon}</span>`;
     return L.divIcon({
       className: "",
-      html: `<div class="marker-pin"><span>${info.icon}</span></div>`,
+      html: `<div class="marker-pin">${content}</div>`,
       iconSize: [38, 44],
       iconAnchor: [19, 40]
     });
@@ -213,7 +219,33 @@
     }).addTo(map);
 
     if (recenter) map.setView([latitude, longitude], Math.max(map.getZoom(), 16));
-    return { lat: latitude, lng: longitude, accuracy: accuracy || null };
+    latestLocation = { lat: latitude, lng: longitude, accuracy: accuracy || null };
+    return latestLocation;
+  }
+
+  function startLocationWatch() {
+    if (!navigator.geolocation || locationWatchId !== null || document.hidden) return;
+    locationWatchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const loc = updateUserLocation(position, false);
+        locationPermissionNoticeShown = false;
+        const newSheetOpen = !$("observationSheet").classList.contains("hidden") && !$("obsId").value;
+        if (newSheetOpen) setFormLocation(loc);
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED && !locationPermissionNoticeShown) {
+          locationPermissionNoticeShown = true;
+          showToast("Enable location access to update your position automatically.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 3000 }
+    );
+  }
+
+  function stopLocationWatch() {
+    if (locationWatchId === null || !navigator.geolocation) return;
+    navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId = null;
   }
 
   function requestLocation({ recenter = false, setForm = false } = {}) {
@@ -283,6 +315,7 @@
     closeAllSheets();
     openBackdrop();
     $("observationSheet").classList.remove("hidden");
+    if (latestLocation) setFormLocation(latestLocation);
     try {
       await requestLocation({ setForm: true, recenter: false });
     } catch {
@@ -755,6 +788,10 @@
       syncNow({ quiet: true });
     });
     window.addEventListener("offline", () => showToast("Offline: saved observations still work; map imagery may not."));
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) stopLocationWatch();
+      else startLocationWatch();
+    });
   }
 
   async function init() {
@@ -764,6 +801,7 @@
       bindEvents();
       await loadObservations();
       initSupabase();
+      startLocationWatch();
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("./sw.js").catch(console.warn);
