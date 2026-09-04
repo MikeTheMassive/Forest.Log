@@ -15,6 +15,8 @@
   const STORE = "observations";
   const MAP_KEY_STORAGE = "forestLogMapTilerKey";
   const LAST_VIEW_STORAGE = "forestLogLastView";
+  const SUPABASE_CONFIG_STORAGE = "forestLogSupabaseConfig";
+  const SYNC_DELETIONS_STORAGE = "forestLogSyncDeletions";
 
   let db;
   let map;
@@ -27,6 +29,9 @@
   let formLocation = null;
   let selectedObservationId = null;
   let toastTimer;
+  let supabaseClient = null;
+  let syncUser = null;
+  let syncBusy = false;
 
   function showToast(message) {
     const el = $("toast");
@@ -432,6 +437,7 @@
       closeAllSheets();
       map.setView([obs.lat, obs.lng], Math.max(map.getZoom(), 16));
       showToast(existing ? "Observation updated." : "Observation saved.");
+      syncNow({ quiet: true });
     } catch (e) {
       console.error(e);
       errorEl.textContent = "Could not save the observation. Device storage may be full.";
@@ -445,10 +451,12 @@
     const id = $("obsId").value;
     if (!id) return;
     if (!confirm("Delete this observation? This cannot be undone unless you have a backup.")) return;
+    rememberDeletion(id);
     await idbDelete(id);
     await loadObservations();
     closeAllSheets();
     showToast("Observation deleted.");
+    syncNow({ quiet: true });
   }
 
   async function loadObservations() {
@@ -463,6 +471,8 @@
     $("settingsSheet").classList.remove("hidden");
     $("maptilerKeyInput").value = localStorage.getItem(MAP_KEY_STORAGE) || "";
     $("observationCount").textContent = String(observations.length);
+    loadSyncSettings();
+    updateSyncUi();
   }
 
   function saveMapKey() {
@@ -545,6 +555,180 @@
     }
   }
 
+
+  function getSyncConfig() {
+    try {
+      return JSON.parse(localStorage.getItem(SUPABASE_CONFIG_STORAGE) || "null");
+    } catch {
+      return null;
+    }
+  }
+
+  function loadSyncSettings() {
+    const config = getSyncConfig();
+    $("supabaseUrlInput").value = config?.url || "";
+    $("supabaseKeyInput").value = config?.key || "";
+  }
+
+  function saveSyncConfig() {
+    const url = $("supabaseUrlInput").value.trim().replace(/\/$/, "");
+    const key = $("supabaseKeyInput").value.trim();
+    if (!/^https:\/\/.+\.supabase\.co$/.test(url) || !key) {
+      showToast("Enter a valid Supabase URL and public key.");
+      return false;
+    }
+    localStorage.setItem(SUPABASE_CONFIG_STORAGE, JSON.stringify({ url, key }));
+    initSupabase();
+    showToast("Supabase connection saved on this device.");
+    return true;
+  }
+
+  function initSupabase() {
+    const config = getSyncConfig();
+    if (!config?.url || !config?.key || !window.supabase?.createClient) {
+      supabaseClient = null;
+      syncUser = null;
+      updateSyncUi();
+      return;
+    }
+    supabaseClient = window.supabase.createClient(config.url, config.key, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    supabaseClient.auth.getUser().then(({ data }) => {
+      syncUser = data?.user || null;
+      updateSyncUi();
+      if (syncUser && navigator.onLine) syncNow({ quiet: true });
+    }).catch(() => updateSyncUi());
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      syncUser = session?.user || null;
+      updateSyncUi();
+    });
+  }
+
+  function updateSyncUi(message) {
+    const status = $("syncStatus");
+    if (!status) return;
+    if (message) status.textContent = message;
+    else if (syncUser) status.textContent = `Signed in as ${syncUser.email || "Supabase user"}. Local and cloud copies are ready to sync.`;
+    else if (getSyncConfig()) status.textContent = "Connection saved. Sign in to enable synchronization.";
+    else status.textContent = "Not connected. Set up the free Supabase project, then enter its URL and public key.";
+    $("syncNowBtn").disabled = !syncUser || syncBusy;
+    $("syncSignOutBtn").classList.toggle("hidden", !syncUser);
+    $("syncSignInBtn").classList.toggle("hidden", !!syncUser);
+  }
+
+  async function signInOrCreateAccount() {
+    if (!supabaseClient && !saveSyncConfig()) return;
+    const email = $("syncEmailInput").value.trim();
+    const password = $("syncPasswordInput").value;
+    if (!email || password.length < 6) {
+      showToast("Enter your email and a password of at least 6 characters.");
+      return;
+    }
+    updateSyncUi("Signing in…");
+    let result = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (result.error && /invalid login credentials/i.test(result.error.message)) {
+      result = await supabaseClient.auth.signUp({ email, password });
+      if (!result.error && !result.data.session) {
+        updateSyncUi("Account created. Confirm the email from Supabase, then sign in.");
+        $("syncPasswordInput").value = "";
+        return;
+      }
+    }
+    $("syncPasswordInput").value = "";
+    if (result.error) {
+      updateSyncUi(result.error.message);
+      showToast("Supabase sign-in failed.");
+      return;
+    }
+    syncUser = result.data.user;
+    updateSyncUi();
+    await syncNow();
+  }
+
+  async function signOutSync() {
+    if (supabaseClient) await supabaseClient.auth.signOut();
+    syncUser = null;
+    $("syncPasswordInput").value = "";
+    updateSyncUi("Signed out. Local observations remain on this device.");
+  }
+
+  function getDeletions() {
+    try { return JSON.parse(localStorage.getItem(SYNC_DELETIONS_STORAGE) || "{}"); }
+    catch { return {}; }
+  }
+
+  function rememberDeletion(id) {
+    const deletions = getDeletions();
+    deletions[id] = new Date().toISOString();
+    localStorage.setItem(SYNC_DELETIONS_STORAGE, JSON.stringify(deletions));
+  }
+
+  async function syncNow({ quiet = false } = {}) {
+    if (syncBusy || !navigator.onLine || !supabaseClient || !syncUser) return;
+    syncBusy = true;
+    updateSyncUi("Synchronizing…");
+    try {
+      const { data: remoteRows, error: readError } = await supabaseClient
+        .from("observations").select("id,payload,updated_at");
+      if (readError) throw readError;
+
+      const localRows = await idbGetAll();
+      const localById = new Map(localRows.map(o => [o.id, o]));
+      const remoteById = new Map((remoteRows || []).map(r => [r.id, r]));
+      const deletions = getDeletions();
+
+      for (const [id, deletedAt] of Object.entries(deletions)) {
+        const remote = remoteById.get(id);
+        if (remote && String(remote.updated_at) > String(deletedAt)) {
+          await idbPut(remote.payload);
+          delete deletions[id];
+        } else {
+          const { error } = await supabaseClient.from("observations").delete().eq("id", id);
+          if (error) throw error;
+          delete deletions[id];
+          remoteById.delete(id);
+        }
+      }
+
+      const uploads = [];
+      for (const local of localRows) {
+        const remote = remoteById.get(local.id);
+        const localTime = local.updatedAt || local.createdAt || "";
+        if (remote && String(remote.updated_at) > String(localTime)) {
+          await idbPut(remote.payload);
+        } else {
+          uploads.push({
+            id: local.id,
+            user_id: syncUser.id,
+            payload: local,
+            updated_at: localTime || new Date().toISOString()
+          });
+        }
+        remoteById.delete(local.id);
+      }
+
+      if (uploads.length) {
+        const { error } = await supabaseClient.from("observations").upsert(uploads, { onConflict: "id" });
+        if (error) throw error;
+      }
+      for (const remote of remoteById.values()) await idbPut(remote.payload);
+
+      localStorage.setItem(SYNC_DELETIONS_STORAGE, JSON.stringify(deletions));
+      await loadObservations();
+      const stamp = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date());
+      updateSyncUi(`Synchronized ${observations.length} observations at ${stamp}.`);
+      if (!quiet) showToast("Cloud sync complete.");
+    } catch (error) {
+      console.error(error);
+      updateSyncUi(`Sync problem: ${error.message || "please try again"}`);
+      if (!quiet) showToast("Cloud sync could not finish.");
+    } finally {
+      syncBusy = false;
+      updateSyncUi($("syncStatus").textContent);
+    }
+  }
+
   function bindEvents() {
     $("locateBtn").addEventListener("click", async () => {
       try {
@@ -581,6 +765,11 @@
       $("toggleKeyBtn").textContent = showing ? "Show" : "Hide";
     });
 
+    $("saveSyncConfigBtn").addEventListener("click", saveSyncConfig);
+    $("syncSignInBtn").addEventListener("click", signInOrCreateAccount);
+    $("syncNowBtn").addEventListener("click", () => syncNow());
+    $("syncSignOutBtn").addEventListener("click", signOutSync);
+
     $("exportBtn").addEventListener("click", exportBackup);
     $("importInput").addEventListener("change", (e) => importBackup(e.target.files?.[0]));
 
@@ -588,7 +777,10 @@
       if (selectedObservationId) openEditObservation(selectedObservationId);
     });
 
-    window.addEventListener("online", () => showToast("Back online."));
+    window.addEventListener("online", () => {
+      showToast("Back online.");
+      syncNow({ quiet: true });
+    });
     window.addEventListener("offline", () => showToast("Offline: saved observations still work; map imagery may not."));
   }
 
@@ -598,6 +790,7 @@
       initMap();
       bindEvents();
       await loadObservations();
+      initSupabase();
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("./sw.js").catch(console.warn);
