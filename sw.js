@@ -1,4 +1,4 @@
-const CACHE = "forest-log-v5";
+const CACHE = "forest-log-v6";
 const APP_SHELL = [
   "./",
   "./index.html",
